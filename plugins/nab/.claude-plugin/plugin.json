@@ -9,8 +9,13 @@
   "hooks": {
     "PostInstall": [
       {
-        "type": "shell",
-        "command": "${CLAUDE_PLUGIN_ROOT}/scripts/install.sh"
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/install.sh"
+          }
+        ]
       }
     ]
   }
