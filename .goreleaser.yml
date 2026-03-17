@@ -1,0 +1,66 @@
+version: 2
+
+project_name: nab
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - main: .
+    binary: nab
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/kfriede/nab/cmd.Version={{.Version}}
+      - -X github.com/kfriede/nab/cmd.Commit={{.ShortCommit}}
+      - -X github.com/kfriede/nab/cmd.BuildDate={{.Date}}
+
+archives:
+  - formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+release:
+  github:
+    owner: kfriede
+    name: nab
+
+brews:
+  - repository:
+      owner: kfriede
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/kfriede/nab"
+    description: "CLI for You Need A Budget (YNAB) — built for humans and LLM agents"
+    license: "MIT"
+    install: |
+      bin.install "nab"
+      generate_completions_from_executable(bin/"nab", "completion")
+    test: |
+      system "#{bin}/nab", "version"

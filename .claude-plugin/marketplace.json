@@ -1,0 +1,8 @@
+{
+  "name": "nab",
+  "version": "0.1.0",
+  "description": "Manage YNAB budgets, accounts, transactions, and categories using the nab CLI",
+  "author": {
+    "name": "Kevin Friedemann"
+  }
+}
