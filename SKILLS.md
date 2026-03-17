@@ -33,12 +33,16 @@ nab <resource> <action> [flags]
 ## Resources
 | Resource | Actions | Description |
 |---|---|---|
-| budget | list, get | YNAB budgets |
-| account | list, get | Budget accounts (checking, savings, credit cards, etc.) |
-| transaction | list, get, create, update, delete | Transactions |
-| category | list, get | Budget categories and category groups |
-| payee | list, get | Payees |
+| budget | list, get, settings | YNAB budgets |
+| account | list, get, create | Budget accounts (checking, savings, credit cards, etc.) |
+| transaction | list, get, create, update, delete, import | Transactions |
+| category | list, get, create, update, group-create, group-update | Budget categories and category groups |
+| payee | list, get, update | Payees |
+| payee-location | list, get | Payee GPS locations |
 | month | list, get | Budget month summaries |
+| scheduled-transaction | list, get, create, update, delete | Scheduled/recurring transactions |
+| money-movement | list, group-list | Money movements and groups |
+| user | get | Authenticated user info |
 
 ## Global Flags
 | Flag | Short | Description |

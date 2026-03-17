@@ -28,7 +28,7 @@ const skillsText = `# nab — Agent Skills
 
 ## Quick Reference
 nab <resource> <action> [flags]
-Resources: budget, account, transaction, category, payee, month
+Resources: budget, account, transaction, category, payee, payee-location, month, scheduled-transaction, money-movement, user
 
 ## Rules
 - ALWAYS use --fields on list/get to limit output (saves tokens)
@@ -41,6 +41,7 @@ Resources: budget, account, transaction, category, payee, month
 
 ## Invariants
 - Resource names are singular nouns: budget, account, transaction, category, payee, month
+- Hyphenated compound resources: scheduled-transaction, payee-location, money-movement
 - All timestamps are ISO 8601 / UTC
 - All dates are YYYY-MM-DD
 - IDs are UUIDs
@@ -55,8 +56,22 @@ nab account list --fields id,name,type,balance
 nab transaction list --fields id,date,amount,payee_name,category_name
 nab category list --fields id,name,budgeted,activity,balance
 
+### Filter transactions
+nab transaction list --since 2024-01-01
+nab transaction list --account <account-id>
+nab transaction list --category <category-id>
+nab transaction list --payee <payee-id>
+nab transaction list --type uncategorized
+
 ### Create with JSON input (preferred for agents)
 nab transaction create --json-input '{"account_id":"...","date":"2024-01-15","amount":-50000,"payee_name":"Grocery Store","category_id":"..."}'
+
+### Assign budget to a category for a month
+nab category update <category-id> --month 2024-01-01 --json-input '{"budgeted":500000}'
+
+### Scheduled transactions
+nab scheduled-transaction list --fields id,date,amount,payee_name,frequency
+nab scheduled-transaction create --json-input '{"account_id":"...","date":"2024-02-01","amount":-50000,"frequency":"monthly"}'
 
 ### Mutating with dry-run first
 nab transaction create --dry-run --json-input '{"account_id":"...","date":"2024-01-15","amount":-50000}'
@@ -71,10 +86,15 @@ nab transaction delete <transaction-id> --yes
 ### Delta requests (efficient sync)
 nab transaction list --last-knowledge 1234
 # Response includes server_knowledge for next delta request
+# Also supported: account list, category list, payee list, month list, scheduled-transaction list
+
+### Import from linked accounts
+nab transaction import
 
 ### Runtime introspection
 nab schema                        # list all commands
 nab schema transaction.create     # full schema for a specific command
+nab user get                      # verify authentication
 
 ## Error Handling
 Errors include structured JSON on stderr:

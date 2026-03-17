@@ -22,6 +22,10 @@ Examples:
   nab month get 2024-01            Get budget month details`,
 }
 
+func init() {
+	monthListCmd.Flags().Int("last-knowledge", 0, "Delta request: only fetch changes since this server_knowledge value")
+}
+
 var monthListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all budget months",
@@ -37,10 +41,16 @@ var monthListCmd = &cobra.Command{
 			return err
 		}
 
+		lastKnowledge, _ := cmd.Flags().GetInt("last-knowledge")
+		path := fmt.Sprintf("/budgets/%s/months", budgetID)
+		if lastKnowledge > 0 {
+			path = fmt.Sprintf("%s?last_knowledge_of_server=%d", path, lastKnowledge)
+		}
+
 		var result struct {
 			Months []map[string]any `json:"months"`
 		}
-		if err := client.GetJSON(fmt.Sprintf("/budgets/%s/months", budgetID), &result); err != nil {
+		if err := client.GetJSON(path, &result); err != nil {
 			return fmt.Errorf("listing months: %w", err)
 		}
 

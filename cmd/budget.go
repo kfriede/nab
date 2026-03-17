@@ -10,17 +10,19 @@ func init() {
 	rootCmd.AddCommand(budgetCmd)
 	budgetCmd.AddCommand(budgetListCmd)
 	budgetCmd.AddCommand(budgetGetCmd)
+	budgetCmd.AddCommand(budgetSettingsCmd)
 }
 
 var budgetCmd = &cobra.Command{
 	Use:   "budget",
 	Short: "Manage YNAB budgets",
-	Long: `List and view YNAB budgets.
+	Long: `List, view, and inspect YNAB budgets.
 
 Examples:
   nab budget list                  List all budgets
   nab budget get                   Get current budget details
-  nab budget get <budget-id>       Get specific budget details`,
+  nab budget get <budget-id>       Get specific budget details
+  nab budget settings              Get budget settings`,
 }
 
 var budgetListCmd = &cobra.Command{
@@ -79,6 +81,36 @@ Supports delta requests via the --last-knowledge flag to fetch only changes sinc
 		}
 
 		return printAPIResult(result)
+	},
+}
+
+var budgetSettingsCmd = &cobra.Command{
+	Use:   "settings",
+	Short: "Get budget settings",
+	Long: `Get settings for the current budget.
+
+Examples:
+  nab budget settings`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := newAPIClient()
+		if err != nil {
+			return err
+		}
+
+		budgetID, err := requireBudget()
+		if err != nil {
+			return err
+		}
+
+		var result struct {
+			Settings map[string]any `json:"settings"`
+		}
+		if err := client.GetJSON(fmt.Sprintf("/budgets/%s/settings", budgetID), &result); err != nil {
+			return fmt.Errorf("getting budget settings: %w", err)
+		}
+
+		return printAPIResult(result.Settings)
 	},
 }
 

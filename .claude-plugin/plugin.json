@@ -6,11 +6,10 @@
     "name": "Kevin Friedemann",
     "url": "https://github.com/kfriede/nab"
   },
-  "pluginRoot": "./",
   "plugins": [
     {
       "name": "nab",
-      "source": ".",
+      "source": "./plugins/nab",
       "version": "0.1.0",
       "description": "Manage YNAB budgets, accounts, transactions, and categories using the nab CLI. Built for both humans and AI agents.",
       "author": {
@@ -24,9 +23,6 @@
         "personal-finance",
         "transactions",
         "budget"
-      ],
-      "skills": [
-        "./skills/ynab-budget-manager/SKILL.md"
       ]
     }
   ]
