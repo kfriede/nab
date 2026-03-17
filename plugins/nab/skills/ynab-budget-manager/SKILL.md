@@ -21,7 +21,9 @@ Manage your YNAB budget using the `nab` CLI. This skill enables the agent to lis
 
 ## Prerequisites
 
-`nab` must be installed and available in PATH:
+`nab` is automatically installed by the plugin's PostInstall hook. If it's not in PATH, check `${CLAUDE_PLUGIN_ROOT}/bin/nab`.
+
+Manual install (if needed):
 ```bash
 brew install kfriede/tap/nab
 # or: go install github.com/kfriede/nab@latest
@@ -34,6 +36,11 @@ export NAB_BUDGET=last-used
 ```
 
 You can create a personal access token at https://app.ynab.com/settings/developer
+
+### Authentication in different environments
+
+- **Claude Code (local)**: Use `nab login` (stores token in OS keyring) or set `NAB_TOKEN` env var.
+- **Claude Cowork (sandboxed VM)**: Set `NAB_TOKEN` in your Cowork environment settings. The OS keyring is not available in the VM, so the env var is the only reliable method. The YNAB API (`api.ynab.com`) is a public endpoint and reachable from the VM.
 
 ## How to Use nab
 
