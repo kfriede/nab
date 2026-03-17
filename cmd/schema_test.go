@@ -69,7 +69,7 @@ func TestFindSimilar(t *testing.T) {
 		{
 			name:    "search for transaction",
 			input:   "transaction",
-			wantAny: []string{"transaction.list", "transaction.get", "transaction.create"},
+			wantAny: []string{"transaction.list", "transaction.get", "transaction.create", "transaction.update", "transaction.delete", "transaction.import"},
 		},
 		{
 			name:    "search for budget",
