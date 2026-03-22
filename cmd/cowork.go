@@ -74,11 +74,17 @@ func runCoworkSetup(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Step 2: Show environment configuration
+	// Step 2: Write environment variables to ~/.claude/settings.json
 	fmt.Fprintln(os.Stderr)
 	showCoworkEnvConfig()
 
-	// Step 3: Show next steps
+	// Step 3: Write local skill files for auto-discovery
+	fmt.Fprintln(os.Stderr)
+	if err := writeWorkspaceSkills(absDir); err != nil {
+		fmt.Fprintf(os.Stderr, "  Warning: could not write skill files: %v\n", err)
+	}
+
+	// Step 4: Show next steps
 	fmt.Fprintln(os.Stderr)
 	showCoworkNextSteps(absDir)
 
@@ -291,5 +297,129 @@ func showCoworkNextSteps(dir string) {
 	fmt.Fprintf(os.Stderr, "  2. Click \"Work in a folder\" → select: %s\n", dir)
 	fmt.Fprintf(os.Stderr, "  3. Ask Claude: \"Run ./nab version to verify setup\"\n")
 	fmt.Fprintln(os.Stderr)
-	printer.Status("Claude will use ./nab from the workspace for all YNAB commands.")
+	printer.Status("Claude will auto-discover nab skills from the workspace.")
 }
+
+// writeWorkspaceSkills writes .claude/skills/nab/SKILL.md and CLAUDE.md into
+// the workspace directory so Cowork auto-discovers nab without a plugin install.
+func writeWorkspaceSkills(dir string) error {
+	skillDir := filepath.Join(dir, ".claude", "skills", "nab")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		return fmt.Errorf("creating skill directory: %w", err)
+	}
+
+	// Write SKILL.md
+	skillPath := filepath.Join(skillDir, "SKILL.md")
+	if err := os.WriteFile(skillPath, []byte(coworkSkillMD), 0o644); err != nil {
+		return fmt.Errorf("writing SKILL.md: %w", err)
+	}
+
+	// Write CLAUDE.md at workspace root
+	claudeMDPath := filepath.Join(dir, "CLAUDE.md")
+	if err := os.WriteFile(claudeMDPath, []byte(coworkClaudeMD), 0o644); err != nil {
+		return fmt.Errorf("writing CLAUDE.md: %w", err)
+	}
+
+	printer.Success("Skill files written to " + skillDir)
+	printer.Status("Claude will auto-discover nab when you open this folder.")
+	return nil
+}
+
+const coworkClaudeMD = `# nab — YNAB CLI
+
+This workspace contains the nab CLI for managing You Need A Budget (YNAB).
+
+The nab binary is at ./nab (sideloaded for Cowork). Always use ./nab, not nab.
+
+Run ` + "`./nab skills`" + ` for the full agent reference, or ` + "`./nab schema`" + ` to discover commands.
+
+## Quick Reference
+
+` + "```" + `
+./nab <resource> <action> [flags]
+` + "```" + `
+
+**Always**: use --fields on reads, --dry-run before writes, --json-input for complex payloads.
+**Never**: parse table output, omit --yes on destructive commands in non-interactive mode.
+
+## Key Rules
+
+- Amounts are in milliunits: 1000 = $1.00, negative = outflow
+- Resource names are singular: budget, account, transaction, category, payee, month
+- Non-TTY mode automatically outputs JSON
+- Use --fields to limit output and save tokens
+`
+
+const coworkSkillMD = `---
+name: nab
+description: "Manage YNAB budgets, accounts, transactions, and categories using the nab CLI. Use when the user asks about budgets, transactions, spending, categories, or YNAB."
+---
+
+# YNAB Budget Manager (nab)
+
+Manage YNAB budgets using the ` + "`./nab`" + ` CLI in this workspace.
+
+## Finding nab
+
+The binary is sideloaded at ` + "`./nab`" + ` in the workspace root. Always use ` + "`./nab`" + `, not ` + "`nab`" + `.
+
+## Discover commands
+
+` + "```bash" + `
+./nab schema                      # list all available commands
+./nab schema transaction.create   # full schema for a specific command
+./nab skills                      # complete agent reference
+` + "```" + `
+
+## Read operations (always safe)
+
+` + "```bash" + `
+./nab budget list --fields id,name,last_modified_on
+./nab account list --fields id,name,type,balance
+./nab transaction list --fields id,date,amount,payee_name,category_name
+./nab transaction list --since 2024-01-01
+./nab category list --fields id,name,budgeted,activity,balance
+./nab payee list --fields id,name
+./nab month list
+./nab month get 2024-01-01
+` + "```" + `
+
+## Write operations (always dry-run first)
+
+` + "```bash" + `
+# Step 1: preview
+./nab transaction create --dry-run --json-input '{"account_id":"...","date":"2024-01-15","amount":-50000,"payee_name":"Grocery Store","category_id":"..."}'
+# Step 2: execute after user confirms
+./nab transaction create --json-input '{"account_id":"...","date":"2024-01-15","amount":-50000,"payee_name":"Grocery Store","category_id":"..."}'
+` + "```" + `
+
+## Destructive operations (require --yes)
+
+` + "```bash" + `
+./nab transaction delete <id> --dry-run    # preview
+./nab transaction delete <id> --yes        # execute
+` + "```" + `
+
+## Rules
+
+- **ALWAYS** use ` + "`--fields`" + ` on list/get commands to limit output
+- **ALWAYS** use ` + "`--dry-run`" + ` before any mutating command, show the preview, and ask for confirmation
+- **ALWAYS** pass ` + "`--yes`" + ` for confirmed destructive actions
+- **ALWAYS** use ` + "`--json-input`" + ` for create/update payloads
+- **NEVER** parse table-formatted output — non-TTY mode auto-outputs JSON
+- **NEVER** omit ` + "`--yes`" + ` on destructive commands (will hang in non-TTY)
+
+## Amounts
+
+All monetary amounts are **milliunits** (integers):
+- 1000 = $1.00
+- -50000 = -$50.00 (outflow)
+- 150750 = $150.75 (inflow)
+
+## Error Handling
+
+Errors include structured JSON on stderr with a guidance field:
+` + "```json" + `
+{"code":"AUTH_ERROR","message":"Token is invalid","guidance":"Set NAB_TOKEN environment variable."}
+` + "```" + `
+`
