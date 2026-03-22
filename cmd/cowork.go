@@ -3,7 +3,6 @@ package cmd
 import (
 	"archive/tar"
 	"compress/gzip"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -66,6 +65,9 @@ func runCoworkSetup(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("creating directory %s: %w", absDir, err)
 	}
 
+	// Warn about shared directories
+	warnIfSharedDirectory(absDir)
+
 	printer.Status("Setting up nab for Claude Cowork...")
 	fmt.Fprintln(os.Stderr)
 
@@ -74,9 +76,9 @@ func runCoworkSetup(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Step 2: Write environment variables to workspace .claude/settings.local.json
+	// Step 2: Write .nab.env credentials file
 	fmt.Fprintln(os.Stderr)
-	writeCoworkEnvConfig(absDir)
+	writeCoworkEnvFile(absDir)
 
 	// Step 3: Write local skill files for auto-discovery
 	fmt.Fprintln(os.Stderr)
@@ -84,7 +86,10 @@ func runCoworkSetup(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(os.Stderr, "  Warning: could not write skill files: %v\n", err)
 	}
 
-	// Step 4: Show next steps
+	// Step 4: Ensure .gitignore protects secrets
+	writeGitignore(absDir)
+
+	// Step 5: Show next steps
 	fmt.Fprintln(os.Stderr)
 	showCoworkNextSteps(absDir)
 
@@ -208,7 +213,58 @@ func fetchLatestVersion() (string, error) {
 	return tag, nil
 }
 
-func writeCoworkEnvConfig(dir string) {
+// warnIfSharedDirectory warns the user if the target directory appears to be
+// shared (e.g., cloud-synced, NAS, or world-readable), since .nab.env contains secrets.
+func warnIfSharedDirectory(dir string) {
+	sharedPrefixes := []string{
+		"/Volumes/",          // macOS network/external volumes
+		"/mnt/",              // Linux mounts
+		"/media/",            // Linux removable media
+		"/tmp/",              // Temp directories
+		"/var/tmp/",          // Persistent temp
+		"/shared/",           // Common shared dirs
+		"/Public/",           // macOS Public folder
+	}
+
+	home, _ := os.UserHomeDir()
+	sharedSubdirs := []string{
+		"Dropbox", "Google Drive", "OneDrive", "Box",
+		"iCloud Drive", "Public", "Shared",
+	}
+
+	for _, prefix := range sharedPrefixes {
+		if strings.HasPrefix(dir, prefix) {
+			printSharedWarning(dir)
+			return
+		}
+	}
+
+	if home != "" {
+		for _, sub := range sharedSubdirs {
+			if strings.HasPrefix(dir, filepath.Join(home, sub)) {
+				printSharedWarning(dir)
+				return
+			}
+		}
+	}
+
+	// Check if world-readable
+	info, err := os.Stat(dir)
+	if err == nil && info.Mode().Perm()&0o007 != 0 {
+		printSharedWarning(dir)
+	}
+}
+
+func printSharedWarning(dir string) {
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "  ⚠️  WARNING: This directory may be shared or cloud-synced:")
+	fmt.Fprintf(os.Stderr, "     %s\n", dir)
+	fmt.Fprintln(os.Stderr, "     The .nab.env file will contain your YNAB API token.")
+	fmt.Fprintln(os.Stderr, "     Consider using a private directory under your home folder instead.")
+	fmt.Fprintln(os.Stderr, "")
+}
+
+func writeCoworkEnvFile(dir string) {
 	// Read current token
 	token := cfg.Token
 	if token == "" {
@@ -228,78 +284,32 @@ func writeCoworkEnvConfig(dir string) {
 		return
 	}
 
-	// Write env vars to workspace .claude/settings.local.json
-	// This file is mounted into the Cowork VM and read by Claude's agent harness.
-	// Unlike ~/.claude/settings.json (host-only), workspace-level settings
-	// are visible inside the sandboxed VM.
-	if err := writeWorkspaceClaudeSettings(dir, token, budget); err != nil {
-		fmt.Fprintf(os.Stderr, "  Could not write settings: %v\n", err)
+	envPath := filepath.Join(dir, ".nab.env")
+
+	content := fmt.Sprintf("# nab credentials for Claude Cowork (auto-generated)\n# This file is read by nab at startup. Do not commit to version control.\nNAB_TOKEN=%s\nNAB_BUDGET=%s\n", token, budget)
+
+	if err := os.WriteFile(envPath, []byte(content), 0o600); err != nil {
+		fmt.Fprintf(os.Stderr, "  Could not write .nab.env: %v\n", err)
 		fmt.Fprintln(os.Stderr)
-		printer.Status("Set these manually in the workspace .claude/settings.local.json:")
+		printer.Status("Create .nab.env manually with:")
 		fmt.Fprintf(os.Stderr, "  NAB_TOKEN=%s\n", token)
 		fmt.Fprintf(os.Stderr, "  NAB_BUDGET=%s\n", budget)
 		return
 	}
 
-	printer.Success("Environment variables written to .claude/settings.local.json")
+	printer.Success("Credentials written to .nab.env")
 	fmt.Fprintf(os.Stderr, "  NAB_TOKEN=****%s\n", token[max(0, len(token)-4):])
 	fmt.Fprintf(os.Stderr, "  NAB_BUDGET=%s\n", budget)
-}
-
-// writeWorkspaceClaudeSettings merges NAB_TOKEN and NAB_BUDGET into
-// <workspace>/.claude/settings.local.json. This file is gitignored by convention
-// and is mounted into the Cowork VM alongside the workspace folder, making
-// env vars available to Claude's bash tool inside the sandbox.
-func writeWorkspaceClaudeSettings(dir, token, budget string) error {
-	claudeDir := filepath.Join(dir, ".claude")
-	settingsPath := filepath.Join(claudeDir, "settings.local.json")
-
-	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
-		return fmt.Errorf("creating %s: %w", claudeDir, err)
-	}
-
-	// Read existing settings (if any)
-	settings := make(map[string]any)
-	if data, err := os.ReadFile(settingsPath); err == nil {
-		if err := json.Unmarshal(data, &settings); err != nil {
-			return fmt.Errorf("parsing existing settings: %w", err)
-		}
-	}
-
-	// Merge into the env block
-	env, _ := settings["env"].(map[string]any)
-	if env == nil {
-		env = make(map[string]any)
-	}
-	env["NAB_TOKEN"] = token
-	env["NAB_BUDGET"] = budget
-	settings["env"] = env
-
-	// Write back with restrictive permissions (contains secrets)
-	out, err := json.MarshalIndent(settings, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encoding settings: %w", err)
-	}
-	out = append(out, '\n')
-
-	if err := os.WriteFile(settingsPath, out, 0o600); err != nil {
-		return fmt.Errorf("writing %s: %w", settingsPath, err)
-	}
-
-	// Ensure .gitignore includes settings.local.json
-	writeGitignore(dir)
-
-	return nil
 }
 
 // writeGitignore ensures the workspace .gitignore excludes sensitive files.
 func writeGitignore(dir string) {
 	gitignorePath := filepath.Join(dir, ".gitignore")
-	content := "# nab cowork setup — do not commit secrets\n.claude/settings.local.json\nnab\n"
+	content := "# nab cowork setup — do not commit secrets\n.nab.env\nnab\n"
 
 	// If .gitignore exists, check if it already covers our files
 	if existing, err := os.ReadFile(gitignorePath); err == nil {
-		if strings.Contains(string(existing), "settings.local.json") {
+		if strings.Contains(string(existing), ".nab.env") {
 			return
 		}
 		content = string(existing) + "\n" + content

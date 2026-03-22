@@ -1,8 +1,10 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/kfriede/nab/internal/config"
 	"github.com/kfriede/nab/internal/output"
@@ -125,6 +127,11 @@ func initConfig() {
 	} else if flagVerbose {
 		cfg.Verbose = true
 	}
+
+	// Load .nab.env from current directory as a fallback credential source.
+	// This supports Claude Cowork where the workspace folder is mounted
+	// into a sandboxed VM and env vars can't be passed from the host.
+	loadLocalEnvFile()
 }
 
 func initPrinter() {
@@ -184,4 +191,57 @@ func resolveOutputFormat() output.Format {
 		return output.FormatJSON
 	}
 	return output.FormatTable
+}
+
+// loadLocalEnvFile reads .nab.env from the current directory and applies
+// any values as fallbacks (only if not already set via flags/env/config/keyring).
+// This supports Claude Cowork where the binary is sideloaded into a workspace
+// and the sandboxed VM cannot access host env vars or keyring.
+func loadLocalEnvFile() {
+	f, err := os.Open(".nab.env")
+	if err != nil {
+		return // no file — not an error
+	}
+	defer func() { _ = f.Close() }()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		// Strip optional "export " prefix
+		line = strings.TrimPrefix(line, "export ")
+
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+
+		// Remove surrounding quotes
+		if len(value) >= 2 && (value[0] == '"' || value[0] == '\'') && value[len(value)-1] == value[0] {
+			value = value[1 : len(value)-1]
+		}
+
+		// Only apply as fallback — never override existing config
+		switch key {
+		case "NAB_TOKEN":
+			if cfg.Token == "" {
+				secret, _ := config.GetSecret(cfg.Profile)
+				if secret == "" {
+					cfg.Token = value
+				}
+			}
+		case "NAB_BUDGET":
+			if cfg.Budget == "" || cfg.Budget == "last-used" {
+				cfg.Budget = value
+			}
+		}
+	}
 }
