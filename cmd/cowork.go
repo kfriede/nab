@@ -74,9 +74,9 @@ func runCoworkSetup(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Step 2: Write environment variables to ~/.claude/settings.json
+	// Step 2: Write environment variables to workspace .claude/settings.local.json
 	fmt.Fprintln(os.Stderr)
-	showCoworkEnvConfig()
+	writeCoworkEnvConfig(absDir)
 
 	// Step 3: Write local skill files for auto-discovery
 	fmt.Fprintln(os.Stderr)
@@ -208,7 +208,7 @@ func fetchLatestVersion() (string, error) {
 	return tag, nil
 }
 
-func showCoworkEnvConfig() {
+func writeCoworkEnvConfig(dir string) {
 	// Read current token
 	token := cfg.Token
 	if token == "" {
@@ -228,32 +228,31 @@ func showCoworkEnvConfig() {
 		return
 	}
 
-	// Write env vars to ~/.claude/settings.json
-	if err := writeClaudeSettings(token, budget); err != nil {
-		// Fall back to showing them manually
-		fmt.Fprintf(os.Stderr, "  Could not write ~/.claude/settings.json: %v\n", err)
+	// Write env vars to workspace .claude/settings.local.json
+	// This file is mounted into the Cowork VM and read by Claude's agent harness.
+	// Unlike ~/.claude/settings.json (host-only), workspace-level settings
+	// are visible inside the sandboxed VM.
+	if err := writeWorkspaceClaudeSettings(dir, token, budget); err != nil {
+		fmt.Fprintf(os.Stderr, "  Could not write settings: %v\n", err)
 		fmt.Fprintln(os.Stderr)
-		printer.Status("Set these manually in Claude Desktop → Settings → Environment Variables:")
+		printer.Status("Set these manually in the workspace .claude/settings.local.json:")
 		fmt.Fprintf(os.Stderr, "  NAB_TOKEN=%s\n", token)
 		fmt.Fprintf(os.Stderr, "  NAB_BUDGET=%s\n", budget)
 		return
 	}
 
-	printer.Success("Environment variables written to ~/.claude/settings.json")
+	printer.Success("Environment variables written to .claude/settings.local.json")
 	fmt.Fprintf(os.Stderr, "  NAB_TOKEN=****%s\n", token[max(0, len(token)-4):])
 	fmt.Fprintf(os.Stderr, "  NAB_BUDGET=%s\n", budget)
 }
 
-// writeClaudeSettings merges NAB_TOKEN and NAB_BUDGET into ~/.claude/settings.json
-// without clobbering any existing settings.
-func writeClaudeSettings(token, budget string) error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("finding home directory: %w", err)
-	}
-
-	claudeDir := filepath.Join(home, ".claude")
-	settingsPath := filepath.Join(claudeDir, "settings.json")
+// writeWorkspaceClaudeSettings merges NAB_TOKEN and NAB_BUDGET into
+// <workspace>/.claude/settings.local.json. This file is gitignored by convention
+// and is mounted into the Cowork VM alongside the workspace folder, making
+// env vars available to Claude's bash tool inside the sandbox.
+func writeWorkspaceClaudeSettings(dir, token, budget string) error {
+	claudeDir := filepath.Join(dir, ".claude")
+	settingsPath := filepath.Join(claudeDir, "settings.local.json")
 
 	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
 		return fmt.Errorf("creating %s: %w", claudeDir, err)
@@ -276,7 +275,7 @@ func writeClaudeSettings(token, budget string) error {
 	env["NAB_BUDGET"] = budget
 	settings["env"] = env
 
-	// Write back
+	// Write back with restrictive permissions (contains secrets)
 	out, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encoding settings: %w", err)
@@ -287,7 +286,26 @@ func writeClaudeSettings(token, budget string) error {
 		return fmt.Errorf("writing %s: %w", settingsPath, err)
 	}
 
+	// Ensure .gitignore includes settings.local.json
+	writeGitignore(dir)
+
 	return nil
+}
+
+// writeGitignore ensures the workspace .gitignore excludes sensitive files.
+func writeGitignore(dir string) {
+	gitignorePath := filepath.Join(dir, ".gitignore")
+	content := "# nab cowork setup — do not commit secrets\n.claude/settings.local.json\nnab\n"
+
+	// If .gitignore exists, check if it already covers our files
+	if existing, err := os.ReadFile(gitignorePath); err == nil {
+		if strings.Contains(string(existing), "settings.local.json") {
+			return
+		}
+		content = string(existing) + "\n" + content
+	}
+
+	_ = os.WriteFile(gitignorePath, []byte(content), 0o644)
 }
 
 func showCoworkNextSteps(dir string) {
