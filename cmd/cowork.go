@@ -3,6 +3,7 @@ package cmd
 import (
 	"archive/tar"
 	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -212,26 +213,75 @@ func showCoworkEnvConfig() {
 	}
 
 	budget := cfg.Budget
+	if budget == "" {
+		budget = "last-used"
+	}
 
-	printer.Status("── Cowork Environment Variables ──")
-	fmt.Fprintln(os.Stderr)
+	if token == "" {
+		printer.Status("NAB_TOKEN not configured — run `nab login` first, then re-run `nab cowork setup`")
+		return
+	}
 
-	if token != "" {
-		// Show full token so the user can copy it for Cowork settings
+	// Write env vars to ~/.claude/settings.json
+	if err := writeClaudeSettings(token, budget); err != nil {
+		// Fall back to showing them manually
+		fmt.Fprintf(os.Stderr, "  Could not write ~/.claude/settings.json: %v\n", err)
+		fmt.Fprintln(os.Stderr)
+		printer.Status("Set these manually in Claude Desktop → Settings → Environment Variables:")
 		fmt.Fprintf(os.Stderr, "  NAB_TOKEN=%s\n", token)
-	} else {
-		fmt.Fprintln(os.Stderr, "  NAB_TOKEN=<not configured — run `nab login` first>")
-	}
-
-	if budget != "" {
 		fmt.Fprintf(os.Stderr, "  NAB_BUDGET=%s\n", budget)
-	} else {
-		fmt.Fprintf(os.Stderr, "  NAB_BUDGET=last-used\n")
+		return
 	}
 
-	fmt.Fprintln(os.Stderr)
-	printer.Status("Add these in Claude Desktop → Settings → Environment Variables")
-	printer.Status("or set them in your Cowork workspace settings.")
+	printer.Success("Environment variables written to ~/.claude/settings.json")
+	fmt.Fprintf(os.Stderr, "  NAB_TOKEN=****%s\n", token[max(0, len(token)-4):])
+	fmt.Fprintf(os.Stderr, "  NAB_BUDGET=%s\n", budget)
+}
+
+// writeClaudeSettings merges NAB_TOKEN and NAB_BUDGET into ~/.claude/settings.json
+// without clobbering any existing settings.
+func writeClaudeSettings(token, budget string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("finding home directory: %w", err)
+	}
+
+	claudeDir := filepath.Join(home, ".claude")
+	settingsPath := filepath.Join(claudeDir, "settings.json")
+
+	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+		return fmt.Errorf("creating %s: %w", claudeDir, err)
+	}
+
+	// Read existing settings (if any)
+	settings := make(map[string]any)
+	if data, err := os.ReadFile(settingsPath); err == nil {
+		if err := json.Unmarshal(data, &settings); err != nil {
+			return fmt.Errorf("parsing existing settings: %w", err)
+		}
+	}
+
+	// Merge into the env block
+	env, _ := settings["env"].(map[string]any)
+	if env == nil {
+		env = make(map[string]any)
+	}
+	env["NAB_TOKEN"] = token
+	env["NAB_BUDGET"] = budget
+	settings["env"] = env
+
+	// Write back
+	out, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encoding settings: %w", err)
+	}
+	out = append(out, '\n')
+
+	if err := os.WriteFile(settingsPath, out, 0o600); err != nil {
+		return fmt.Errorf("writing %s: %w", settingsPath, err)
+	}
+
+	return nil
 }
 
 func showCoworkNextSteps(dir string) {
@@ -239,8 +289,7 @@ func showCoworkNextSteps(dir string) {
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintf(os.Stderr, "  1. Open Claude Desktop → Cowork tab\n")
 	fmt.Fprintf(os.Stderr, "  2. Click \"Work in a folder\" → select: %s\n", dir)
-	fmt.Fprintf(os.Stderr, "  3. Set the environment variables shown above\n")
-	fmt.Fprintf(os.Stderr, "  4. Ask Claude: \"Run ./nab version to verify setup\"\n")
+	fmt.Fprintf(os.Stderr, "  3. Ask Claude: \"Run ./nab version to verify setup\"\n")
 	fmt.Fprintln(os.Stderr)
 	printer.Status("Claude will use ./nab from the workspace for all YNAB commands.")
 }
