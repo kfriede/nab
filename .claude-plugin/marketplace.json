@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "nab",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Manage YNAB budgets, accounts, transactions, and categories using the nab CLI",
   "owner": {
     "name": "Kevin Friedemann",
@@ -11,7 +11,7 @@
     {
       "name": "nab",
       "source": "./plugins/nab",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "description": "Manage YNAB budgets, accounts, transactions, and categories using the nab CLI. Built for both humans and AI agents.",
       "author": {
         "name": "Kevin Friedemann"
