@@ -376,6 +376,12 @@ Run ` + "`./nab skills`" + ` for the full agent reference, or ` + "`./nab schema
 - Resource names are singular: budget, account, transaction, category, payee, month
 - Non-TTY mode automatically outputs JSON
 - Use --fields to limit output and save tokens
+
+## Network Access
+
+nab requires HTTPS access to api.ynab.com. If commands fail with network errors,
+the user needs to add ` + "`*.ynab.com`" + ` to the Cowork domain allowlist:
+**Claude Desktop → Settings → Capabilities → Domain allowlist → Additional allowed domains**
 `
 
 const coworkSkillMD = `---
@@ -450,4 +456,17 @@ Errors include structured JSON on stderr with a guidance field:
 ` + "```json" + `
 {"code":"AUTH_ERROR","message":"Token is invalid","guidance":"Set NAB_TOKEN environment variable."}
 ` + "```" + `
+
+## Troubleshooting: Network Access
+
+nab requires outbound HTTPS access to api.ynab.com. Cowork's sandbox blocks network access by default.
+
+If you see connection errors (EGRESS_BLOCKED, timeout, connection refused):
+
+1. The user must add ` + "`*.ynab.com`" + ` to the domain allowlist in Claude Desktop
+2. Go to: **Claude Desktop → Settings → Capabilities → Domain allowlist**
+3. Under "Additional allowed domains", add: ` + "`*.ynab.com`" + `
+4. Restart the Cowork session
+
+Tell the user this if any nab command fails with a network error.
 `

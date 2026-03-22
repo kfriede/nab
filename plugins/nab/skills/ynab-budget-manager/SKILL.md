@@ -137,3 +137,16 @@ Errors include structured JSON on stderr with a `guidance` field:
 ```
 
 Exit codes: 0=success, 1=general, 2=auth, 3=not found, 4=conflict
+
+## Troubleshooting: Network Access (Cowork)
+
+nab requires outbound HTTPS access to `api.ynab.com`. Claude Cowork's sandbox blocks network access by default.
+
+If you see connection errors (`EGRESS_BLOCKED`, timeout, connection refused):
+
+1. The user must add `*.ynab.com` to the domain allowlist in Claude Desktop
+2. Go to: **Claude Desktop → Settings → Capabilities → Domain allowlist**
+3. Under "Additional allowed domains", add: `*.ynab.com`
+4. Restart the Cowork session
+
+Tell the user this if any nab command fails with a network error.
