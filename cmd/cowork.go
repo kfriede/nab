@@ -217,13 +217,13 @@ func fetchLatestVersion() (string, error) {
 // shared (e.g., cloud-synced, NAS, or world-readable), since .nab.env contains secrets.
 func warnIfSharedDirectory(dir string) {
 	sharedPrefixes := []string{
-		"/Volumes/",          // macOS network/external volumes
-		"/mnt/",              // Linux mounts
-		"/media/",            // Linux removable media
-		"/tmp/",              // Temp directories
-		"/var/tmp/",          // Persistent temp
-		"/shared/",           // Common shared dirs
-		"/Public/",           // macOS Public folder
+		"/Volumes/", // macOS network/external volumes
+		"/mnt/",     // Linux mounts
+		"/media/",   // Linux removable media
+		"/tmp/",     // Temp directories
+		"/var/tmp/", // Persistent temp
+		"/shared/",  // Common shared dirs
+		"/Public/",  // macOS Public folder
 	}
 
 	home, _ := os.UserHomeDir()
