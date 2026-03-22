@@ -119,7 +119,7 @@ func downloadCoworkBinary(dir string) error {
 	if err != nil {
 		return fmt.Errorf("download failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("download failed: HTTP %d — check that v%s exists at github.com/kfriede/nab/releases", resp.StatusCode, versionNum)
@@ -143,7 +143,7 @@ func extractBinaryFromTarGz(r io.Reader, destPath string) error {
 	if err != nil {
 		return fmt.Errorf("gzip: %w", err)
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 
 	tr := tar.NewReader(gz)
 	for {
@@ -160,10 +160,14 @@ func extractBinaryFromTarGz(r io.Reader, destPath string) error {
 			if err != nil {
 				return fmt.Errorf("creating file: %w", err)
 			}
-			defer out.Close()
 
-			if _, err := io.Copy(out, tr); err != nil { //nolint:gosec // archive from known source
-				return fmt.Errorf("writing file: %w", err)
+			_, copyErr := io.Copy(out, tr) //nolint:gosec // archive from known source
+			closeErr := out.Close()
+			if copyErr != nil {
+				return fmt.Errorf("writing file: %w", copyErr)
+			}
+			if closeErr != nil {
+				return fmt.Errorf("closing file: %w", closeErr)
 			}
 			return nil
 		}
@@ -181,7 +185,7 @@ func fetchLatestVersion() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	loc := resp.Header.Get("Location")
 	if loc == "" {
