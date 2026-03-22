@@ -19,15 +19,47 @@ examples:
 
 Manage your YNAB budget using the `nab` CLI. This skill enables the agent to list budgets, view accounts, manage transactions, check category balances, and review budget months — all through structured CLI commands with safety rails.
 
+## Finding nab
+
+Before using any `nab` commands, determine which binary to use:
+
+```bash
+# Check if nab is in PATH (standard install)
+which nab && NAB_CMD="nab"
+
+# If not found, check for sideloaded binary in workspace (Claude Cowork)
+if [ -z "${NAB_CMD:-}" ] && [ -x ./nab ]; then NAB_CMD="./nab"; fi
+
+# If still not found, install it
+if [ -z "${NAB_CMD:-}" ]; then
+  echo "nab not found. Run the setup script:" >&2
+  echo "  curl -fsSL https://raw.githubusercontent.com/kfriede/nab/main/scripts/cowork-setup.sh | bash" >&2
+fi
+```
+
+Use `$NAB_CMD` (or `./nab` in Cowork, `nab` in Claude Code / terminal) for all commands below.
+
 ## Prerequisites
 
-Install `nab` and ensure it's available in PATH:
+### Option A: Standard install (Claude Code / terminal)
 ```bash
 brew install kfriede/tap/nab
 # or: go install github.com/kfriede/nab@latest
 ```
 
-Configure access:
+### Option B: Claude Cowork (sideloaded binary)
+Cowork runs in a sandboxed Linux VM — host binaries are not available. Run this on your **host machine** to prepare a workspace:
+```bash
+nab cowork setup --dir ~/Cowork
+```
+This downloads the correct Linux binary and shows the environment variables to configure in Cowork.
+
+Alternatively, if nab isn't installed on the host, use the standalone script:
+```bash
+curl -fsSL https://raw.githubusercontent.com/kfriede/nab/main/scripts/cowork-setup.sh | bash
+```
+
+### Configure access
 ```bash
 export NAB_TOKEN=<your-ynab-personal-access-token>
 export NAB_BUDGET=last-used
@@ -35,7 +67,7 @@ export NAB_BUDGET=last-used
 
 You can create a personal access token at https://app.ynab.com/settings/developer
 
-> **Note:** This plugin requires local execution (e.g., Claude Code) with network access to `api.ynab.com`. It is not compatible with Claude Cowork's sandboxed VM, which restricts outbound network access.
+> **Cowork tip:** Set `NAB_TOKEN` and `NAB_BUDGET` in your Cowork environment settings (Settings → Environment Variables) so they persist across sessions.
 
 ## How to Use nab
 

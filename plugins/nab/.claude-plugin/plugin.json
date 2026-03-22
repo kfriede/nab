@@ -5,5 +5,9 @@
   "author": {
     "name": "Kevin Friedemann"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "setup": {
+    "instructions": "Install nab via Homebrew (`brew install kfriede/tap/nab`) or run `nab cowork setup --dir ~/Cowork` to prepare a Cowork workspace. Set NAB_TOKEN and NAB_BUDGET environment variables.",
+    "env": ["NAB_TOKEN", "NAB_BUDGET"]
+  }
 }

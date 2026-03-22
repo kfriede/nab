@@ -6,7 +6,8 @@
   <a href="#install">Install</a> •
   <a href="#quick-start">Quick Start</a> •
   <a href="#commands">Commands</a> •
-  <a href="#for-llm-agents">For LLM Agents</a>
+  <a href="#for-llm-agents">For LLM Agents</a> •
+  <a href="#claude-cowork">Claude Cowork</a>
 </p>
 
 ---
@@ -29,6 +30,12 @@ $ nab budget list --fields id,name | jq '.[].name'
 ```
 
 ## Install
+
+**Claude Cowork** (sandboxed VM — [details below](#claude-cowork)):
+
+```bash
+nab cowork setup --dir ~/Cowork
+```
 
 **Homebrew** (macOS and Linux):
 
@@ -119,6 +126,7 @@ nab transaction import
 | `user get` | Verify authentication |
 | `login` | Interactive auth (stores token in OS keyring) |
 | `config show\|set\|path` | View and manage configuration |
+| `cowork setup` | Set up nab for Claude Cowork (downloads binary + shows env config) |
 | `schema [resource.action]` | Runtime command introspection (for agents) |
 | `skills` | Agent-optimized usage instructions |
 | `version` | Version info (supports `--json`) |
@@ -258,19 +266,59 @@ nab ships config files that agents discover automatically:
 
 Agents that clone or work within this repo will automatically pick up the appropriate file. For agents using nab as an *external tool* (not within the repo), set the env vars and run `nab skills` to bootstrap.
 
-### Claude Cowork Plugin
+## Claude Cowork
 
-Install nab as a Claude Cowork plugin for natural language budget management:
+nab fully supports [Claude Cowork](https://claude.ai) — Anthropic's agentic desktop tool. Cowork runs inside a sandboxed Linux VM, so host-installed binaries (Homebrew, go install) are not visible. nab handles this with a one-command setup that sideloads a static Linux binary into your workspace.
+
+### Quick Setup
+
+```bash
+# On your host machine (where nab is already installed):
+nab cowork setup --dir ~/Cowork
+```
+
+This command:
+1. **Downloads** the correct static Linux binary from GitHub Releases (matches your architecture)
+2. **Displays** your existing `NAB_TOKEN` and `NAB_BUDGET` values so you can copy them into Cowork's environment settings
+3. **Prints** step-by-step instructions for opening the folder in Cowork
+
+### Step-by-Step
+
+1. Run `nab cowork setup --dir ~/Cowork` on your host machine
+2. In Claude Desktop → **Cowork** tab → click **"Work in a folder"** → select `~/Cowork`
+3. Add environment variables in Cowork settings (shown by the setup command):
+   ```
+   NAB_TOKEN=<your-token>
+   NAB_BUDGET=last-used
+   ```
+4. Ask Claude: *"Run `./nab version` to verify setup"*
+
+That's it — Claude will use `./nab` from the workspace for all YNAB commands.
+
+### Without a host install
+
+If `nab` isn't installed on your host machine, run the standalone script inside Cowork's bash:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kfriede/nab/main/scripts/cowork-setup.sh | bash
+```
+
+### Plugin Install
+
+You can also install nab as a Cowork plugin for skill discovery:
 
 ```
 /plugin install https://github.com/kfriede/nab
 ```
 
-Then ask Claude things like:
+### What you can ask Claude
+
+Once set up, use natural language:
 - "List my recent transactions"
 - "How much did I spend on groceries this month?"
 - "Create a transaction for $50 at the grocery store"
 - "Assign $500 to my rent category for next month"
+- "Show me my budget categories and balances"
 
 ## Configuration
 
@@ -299,9 +347,10 @@ nab budget list --profile family
 ```bash
 git clone https://github.com/kfriede/nab.git
 cd nab
-make all        # lint + test + build
-make test       # just tests
-make lint       # just lint
+make all           # lint + test + build
+make test          # just tests
+make lint          # just lint
+make build-cowork  # cross-compile for Cowork VM (linux/amd64 + linux/arm64)
 ```
 
 ## License
