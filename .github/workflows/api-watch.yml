@@ -1,0 +1,80 @@
+name: Watch YNAB API Updates
+
+on:
+  schedule:
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  check-api-updates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check YNAB OpenAPI spec
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl -sfL "https://api.ynab.com/papi/open_api_spec.yaml" -o /tmp/ynab.yaml
+          HASH=$(sha256sum /tmp/ynab.yaml | awk '{print $1}')
+          VERSION=$(awk '/^info:/{p=1} p&&/version:/{gsub(/["'\'']/,""); print $2; exit}' /tmp/ynab.yaml)
+          echo "Live OpenAPI version=${VERSION:-unknown} sha256=$HASH"
+
+          TRACKED_HASH=""
+          TRACKED_VERSION=""
+          if [ -f .api-versions ]; then
+            TRACKED_HASH=$(grep '^openapi_sha256=' .api-versions | cut -d= -f2 || true)
+            TRACKED_VERSION=$(grep '^openapi_version=' .api-versions | cut -d= -f2 || true)
+          fi
+
+          if [ -z "$TRACKED_HASH" ]; then
+            echo "First run — recording baseline"
+            printf 'openapi_version=%s\nopenapi_sha256=%s\n' "${VERSION:-unknown}" "$HASH" > .api-versions
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add .api-versions
+            git diff --cached --quiet || git commit -m "chore: baseline YNAB OpenAPI ${VERSION}"
+            git diff --quiet HEAD origin/main || git push
+            exit 0
+          fi
+
+          if [ "$HASH" = "$TRACKED_HASH" ]; then
+            echo "No OpenAPI change."
+            exit 0
+          fi
+
+          TITLE="YNAB OpenAPI ${VERSION} (was ${TRACKED_VERSION})"
+          if gh issue list --repo kfriede/nab --label api-update --state open --json title -q '.[].title' | grep -Fqx "$TITLE"; then
+            echo "Issue already open."
+          else
+            gh issue create --repo kfriede/nab --title "$TITLE" --label api-update --body "$(cat <<EOF
+          YNAB published a new OpenAPI spec.
+
+          - **Previous version**: ${TRACKED_VERSION}
+          - **New version**: ${VERSION}
+          - **Previous sha256**: \`${TRACKED_HASH}\`
+          - **New sha256**: \`${HASH}\`
+          - **Spec**: https://api.ynab.com/papi/open_api_spec.yaml
+
+          Live \`/budgets\` paths may still work as aliases. Diff paths before rewriting nab commands.
+
+          ### Action
+          - [ ] Diff paths vs \`cmd/*.go\`
+          - [ ] Keep existing \`nab budget\` UX unless YNAB removed \`/budgets\`
+          - [ ] Add dual-path or alias if \`/plans\` is additive
+          - [ ] Tests + patch/minor release
+          EOF
+          )"
+          fi
+
+          printf 'openapi_version=%s\nopenapi_sha256=%s\n' "${VERSION:-unknown}" "$HASH" > .api-versions
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .api-versions
+          git diff --cached --quiet || git commit -m "chore: track YNAB OpenAPI ${VERSION}"
+          git push
