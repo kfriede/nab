@@ -16,6 +16,11 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      - dependency-name: golang.org/x/term
+        versions: [">=0.46.0"]
+      - dependency-name: golang.org/x/sys
+        versions: [">=0.48.0"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
