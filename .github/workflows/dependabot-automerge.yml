@@ -7,10 +7,12 @@ permissions:
   contents: write
   pull-requests: write
   checks: read
+  actions: read
 
 jobs:
   dependabot:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     if: github.actor == 'dependabot[bot]'
     steps:
       - name: Dependabot metadata
@@ -22,7 +24,25 @@ jobs:
         if: contains(fromJSON('["version-update:semver-patch","version-update:semver-minor"]'), steps.meta.outputs.update-type)
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
+          SHA: ${{ github.event.pull_request.head.sha }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh pr checks "$PR_URL" --watch --fail-fast
+          set -euo pipefail
+          # This job is a check named "dependabot". `gh pr checks --watch`
+          # waits for every check, including this one, so the job stays pending
+          # until the 6h timeout. Watch the CI workflow run instead.
+          RUN_ID=""
+          for _ in $(seq 1 30); do
+            RUN_ID=$(gh run list --commit "$SHA" --workflow ci.yml --limit 1 --json databaseId --jq ".[0].databaseId // empty")
+            if [ -n "$RUN_ID" ]; then
+              break
+            fi
+            sleep 10
+          done
+          if [ -z "$RUN_ID" ]; then
+            echo "CI workflow did not start for $SHA"
+            exit 1
+          fi
+          gh run watch "$RUN_ID" --exit-status --interval 15
           gh pr merge --squash --delete-branch "$PR_URL"
+
