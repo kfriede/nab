@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"github.com/kfriede/nab/internal/api"
 	"os"
 	"strings"
 
@@ -18,18 +20,19 @@ var (
 	printer *output.Printer
 
 	// Global flags
-	flagJSON    bool
-	flagCSV     bool
-	flagOutput  string
-	flagFields  string
-	flagQuiet   bool
-	flagVerbose bool
-	flagDebug   bool
-	flagNoColor bool
-	flagProfile string
-	flagBudget  string
-	flagYes     bool
-	flagDryRun  bool
+	flagJSON             bool
+	flagCSV              bool
+	flagOutput           string
+	flagFields           string
+	flagQuiet            bool
+	flagVerbose          bool
+	flagDebug            bool
+	flagNoColor          bool
+	flagProfile          string
+	flagBudget           string
+	flagYes              bool
+	flagDryRun           bool
+	flagMutationAttempts string
 )
 
 var rootCmd = &cobra.Command{
@@ -47,8 +50,36 @@ Get started:
 
 Use --json for machine-readable output, --fields to select specific fields.
 Run 'nab schema <resource>.<action>' for command introspection.`,
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		value := "1"
+		if env, ok := os.LookupEnv("NAB_MUTATION_ATTEMPTS"); ok {
+			if err := validateMutationAttempts(env); err != nil {
+				return err
+			}
+			value = env
+		}
+		if cmd.Flags().Changed("mutation-attempts") {
+			value = flagMutationAttempts
+		}
+		return validateMutationAttempts(value)
+	},
 	SilenceUsage:  true,
 	SilenceErrors: true,
+}
+
+func validateMutationAttempts(value string) error {
+	if value != "1" {
+		return fmt.Errorf("mutation-attempts must be exactly 1; mutation retries are prohibited")
+	}
+	return nil
+}
+
+func classifyError(err error) output.AppError {
+	var unknown *api.MutationOutcomeUnknownError
+	if errors.As(err, &unknown) {
+		return output.NewError("MUTATION_OUTCOME_UNKNOWN", err.Error(), "Do not replay. GET the exact target and reconcile all fields. If the result cannot uniquely prove the outcome, stop for review. A new mutation requires a fresh dry-run and confirmation.")
+	}
+	return output.NewError(output.ErrCodeGeneral, err.Error(), "")
 }
 
 func Execute() error {
@@ -56,10 +87,7 @@ func Execute() error {
 	if err != nil {
 		// Print error to stderr (Cobra's SilenceErrors suppresses its own printing)
 		if printer != nil {
-			printer.PrintError(output.AppError{
-				Code:    output.ErrCodeGeneral,
-				Message: err.Error(),
-			})
+			printer.PrintError(classifyError(err))
 		} else {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 		}
@@ -87,6 +115,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&flagBudget, "budget", "b", "", "Budget ID or name (supports 'last-used' and 'default')")
 
 	// Safety flags
+	rootCmd.PersistentFlags().StringVar(&flagMutationAttempts, "mutation-attempts", "1", "Mutation attempts (only 1 is allowed; NAB_MUTATION_ATTEMPTS)")
 	rootCmd.PersistentFlags().BoolVarP(&flagYes, "yes", "y", false, "Skip confirmation prompts")
 	rootCmd.PersistentFlags().BoolVar(&flagDryRun, "dry-run", false, "Preview changes without executing")
 

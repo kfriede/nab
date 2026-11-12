@@ -146,6 +146,9 @@ nab skills
 Command pattern: ` + "`nab <resource> <action> [flags]`" + `
 
 ### Rules
+- Mutations are single-attempt by default. --mutation-attempts=1 and NAB_MUTATION_ATTEMPTS=1 are the only allowed values.
+- Never wrap mutation commands/batches in automatic retries. MUTATION_OUTCOME_UNKNOWN requires exact-target GET reconciliation, not replay.
+- Missing, stale, incomplete or inconclusive GET results leave the outcome unknown; stop for review. A new mutation requires a fresh dry-run and applicable confirmation.
 
 - Use ` + "`--fields`" + ` on list/get commands to limit output and save tokens
 - Use ` + "`--dry-run`" + ` before any mutating command, then confirm with the user

@@ -31,6 +31,9 @@ nab <resource> <action> [flags]
 Resources: budget, account, transaction, category, payee, payee-location, month, scheduled-transaction, money-movement, user
 
 ## Rules
+- Mutations are single-attempt by default. --mutation-attempts=1 and NAB_MUTATION_ATTEMPTS=1 are the only allowed values.
+- Never wrap mutation commands/batches in automatic retries. MUTATION_OUTCOME_UNKNOWN requires exact-target GET reconciliation, not replay.
+- Missing, stale, incomplete or inconclusive GET results leave the outcome unknown; stop for review. A new mutation requires a fresh dry-run and applicable confirmation.
 - ALWAYS use --fields on list/get to limit output (saves tokens)
 - ALWAYS use --dry-run before any mutating command, then confirm with user
 - ALWAYS pass --yes on confirmed destructive actions (delete)
