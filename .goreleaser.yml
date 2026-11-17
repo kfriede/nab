@@ -50,17 +50,5 @@ release:
     owner: kfriede
     name: nab
 
-brews:
-  - repository:
-      owner: kfriede
-      name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    directory: Formula
-    homepage: "https://github.com/kfriede/nab"
-    description: "CLI for You Need A Budget (YNAB) — built for humans and LLM agents"
-    license: "MIT"
-    install: |
-      bin.install "nab"
-      generate_completions_from_executable(bin/"nab", "completion")
-    test: |
-      system "#{bin}/nab", "version"
+# Formula/nab.rb in kfriede/homebrew-tap is updated by hand after a release.
+# Do not add a brews publisher here.
