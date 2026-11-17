@@ -1,11 +1,13 @@
 package api
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -14,7 +16,7 @@ const (
 	defaultTimeout = 30 * time.Second
 	maxRetries     = 3
 	retryBaseDelay = 1 * time.Second
-	userAgent      = "nab/0.1.0"
+	userAgent      = "nab/0.2.6"
 
 	// YNAB API base URL
 	BaseURL = "https://api.ynab.com/v1"
@@ -22,12 +24,14 @@ const (
 
 // Client is the YNAB API client.
 type Client struct {
-	httpClient *http.Client
-	baseURL    string
-	token      string
-	verbose    bool
-	debug      bool
-	errWriter  io.Writer
+	httpClient        *http.Client
+	mutationTransport *http.Transport
+	baseURL           string
+	token             string
+	verbose           bool
+	debug             bool
+	errWriter         io.Writer
+	sleep             func(time.Duration) // injectable for deterministic read-backoff tests
 }
 
 // ClientConfig configures a Client.
@@ -42,7 +46,7 @@ type ClientConfig struct {
 
 // NewClient creates a new YNAB API client.
 func NewClient(cfg ClientConfig) *Client {
-	if cfg.Timeout == 0 {
+	if cfg.Timeout <= 0 {
 		cfg.Timeout = defaultTimeout
 	}
 
@@ -52,7 +56,18 @@ func NewClient(cfg ClientConfig) *Client {
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
 
+	if cfg.ErrWriter == nil {
+		cfg.ErrWriter = io.Discard
+	}
+	// Fresh HTTP/1 connections prevent hidden net/http stale-connection and HTTP/2
+	// retries. Application-level attempts alone are not a wire-attempt ceiling.
+	mutationTransport := http.DefaultTransport.(*http.Transport).Clone()
+	mutationTransport.DisableKeepAlives = true
+	mutationTransport.ForceAttemptHTTP2 = false
+	mutationTransport.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
 	return &Client{
+		mutationTransport: mutationTransport,
+		sleep:             time.Sleep,
 		httpClient: &http.Client{
 			Timeout: cfg.Timeout,
 		},
@@ -88,17 +103,32 @@ type errorWrapper struct {
 	Error APIError `json:"error"`
 }
 
-// Do performs an HTTP request with retry logic.
-func (c *Client) Do(method, path string, body io.Reader) (*http.Response, error) {
-	url := c.baseURL + path
+// MutationOutcomeUnknownError means a write may have committed. Never retry it
+// blindly: reconcile the exact target with GET before a fresh preview/confirmation.
+// Cause is retained for errors.Is/As, but not printed (it may contain a private URL).
+type MutationOutcomeUnknownError struct{ Cause error }
 
+func (e *MutationOutcomeUnknownError) Error() string {
+	return "MUTATION_OUTCOME_UNKNOWN: mutation may have committed; reconcile with GET before a fresh dry-run and confirmation; do not blindly retry"
+}
+func (e *MutationOutcomeUnknownError) Unwrap() error { return e.Cause }
+
+func isRead(method string) bool { return method == http.MethodGet || method == http.MethodHead }
+
+// Do retries reads only. All other methods have one application attempt, no
+// redirects and no replayable body (including net/http's transport retry path).
+func (c *Client) Do(method, path string, body io.Reader) (*http.Response, error) {
+	read := isRead(method)
+	attempts := 1
+	if read {
+		attempts = maxRetries
+	}
 	var lastErr error
-	for attempt := range maxRetries {
-		req, err := http.NewRequest(method, url, body)
+	for attempt := range attempts {
+		req, err := http.NewRequest(method, c.baseURL+path, body)
 		if err != nil {
 			return nil, fmt.Errorf("creating request: %w", err)
 		}
-
 		req.Header.Set("User-Agent", userAgent)
 		req.Header.Set("Accept", "application/json")
 		if body != nil {
@@ -107,49 +137,76 @@ func (c *Client) Do(method, path string, body io.Reader) (*http.Response, error)
 		if c.token != "" {
 			req.Header.Set("Authorization", "Bearer "+c.token)
 		}
-
-		if c.verbose {
-			_, _ = fmt.Fprintf(c.errWriter, "[%s] %s\n", method, url)
-		}
-
-		start := time.Now()
-		resp, err := c.httpClient.Do(req)
-		elapsed := time.Since(start)
-
-		if c.verbose {
-			if err != nil {
-				_, _ = fmt.Fprintf(c.errWriter, "  error: %v (%.1fs)\n", err, elapsed.Seconds())
-			} else {
-				_, _ = fmt.Fprintf(c.errWriter, "  %d (%.1fs)\n", resp.StatusCode, elapsed.Seconds())
+		client := *c.httpClient
+		if !read {
+			if client.Transport == nil {
+				client.Transport = c.mutationTransport
 			}
+			// A non-nil, non-rewindable body also prevents replay of empty DELETE
+			// requests on stale keepalive connections. Never add idempotency headers.
+			if req.Body == nil || req.Body == http.NoBody {
+				req.Body = io.NopCloser(strings.NewReader(""))
+			}
+			req.GetBody = nil
+			client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
 		}
-
+		if c.verbose {
+			_, _ = fmt.Fprintf(c.errWriter, "[%s] %s\n", method, path)
+		}
+		resp, err := client.Do(req)
 		if err != nil {
+			if !read {
+				return nil, &MutationOutcomeUnknownError{Cause: err}
+			}
 			lastErr = err
-			if attempt < maxRetries-1 {
-				time.Sleep(retryDelay(attempt))
+			if attempt < attempts-1 {
+				c.sleep(retryDelay(attempt))
 			}
 			continue
 		}
-
-		// Retry on 429 and 5xx
+		if !read {
+			if resp.StatusCode >= 300 && resp.StatusCode < 400 || resp.StatusCode >= 500 {
+				_ = resp.Body.Close()
+				return nil, &MutationOutcomeUnknownError{Cause: fmt.Errorf("HTTP %d", resp.StatusCode)}
+			}
+			return resp, nil // including 429: return the rejection, never replay
+		}
 		if resp.StatusCode == 429 || resp.StatusCode >= 500 {
 			_ = resp.Body.Close()
-			lastErr = fmt.Errorf("HTTP %d from %s %s", resp.StatusCode, method, path)
-			if attempt < maxRetries-1 {
+			lastErr = fmt.Errorf("HTTP %d from %s", resp.StatusCode, method)
+			if attempt < attempts-1 {
 				delay := retryDelay(attempt)
-				if c.verbose {
-					_, _ = fmt.Fprintf(c.errWriter, "  retrying in %v...\n", delay)
+				if resp.StatusCode == 429 {
+					delay = retryAfter(resp.Header.Get("Retry-After"), time.Now(), delay)
 				}
-				time.Sleep(delay)
+				c.sleep(delay)
 			}
 			continue
 		}
-
 		return resp, nil
 	}
+	return nil, fmt.Errorf("request failed after %d attempts: %w", attempts, lastErr)
+}
 
-	return nil, fmt.Errorf("request failed after %d attempts: %w", maxRetries, lastErr)
+// Invalid/negative Retry-After falls back to bounded exponential read backoff.
+func retryAfter(value string, now time.Time, fallback time.Duration) time.Duration {
+	if seconds, err := strconv.ParseInt(value, 10, 64); err == nil && seconds >= 0 {
+		// Cap server-directed sleep at 30 seconds; each HTTP attempt also has a timeout.
+		if seconds > 30 {
+			return 30 * time.Second
+		}
+		return time.Duration(seconds) * time.Second
+	}
+	if date, err := http.ParseTime(value); err == nil {
+		if date.Before(now) {
+			return 0
+		}
+		if date.Sub(now) > 30*time.Second {
+			return 30 * time.Second
+		}
+		return date.Sub(now)
+	}
+	return fallback
 }
 
 // Get performs a GET request and returns the unwrapped response body.
@@ -209,11 +266,13 @@ func (c *Client) Delete(path string) error {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode >= 400 {
-		data, _ := io.ReadAll(resp.Body)
-		return parseAPIError(data)
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return &MutationOutcomeUnknownError{Cause: err}
 	}
-
+	if resp.StatusCode >= 400 {
+		return mutationRejection(data)
+	}
 	return nil
 }
 
@@ -238,7 +297,7 @@ func (c *Client) mutate(method, path string, body any) ([]byte, error) {
 
 	respData, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("reading response: %w", err)
+		return nil, &MutationOutcomeUnknownError{Cause: err}
 	}
 
 	if c.debug {
@@ -246,10 +305,21 @@ func (c *Client) mutate(method, path string, body any) ([]byte, error) {
 	}
 
 	if resp.StatusCode >= 400 {
-		return nil, parseAPIError(respData)
+		return nil, mutationRejection(respData)
 	}
 
-	return unwrapData(respData)
+	var wrapper dataWrapper
+	if err := json.Unmarshal(respData, &wrapper); err != nil {
+		return nil, &MutationOutcomeUnknownError{Cause: err}
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(wrapper.Data, &object); err != nil {
+		return nil, &MutationOutcomeUnknownError{Cause: err}
+	}
+	if object == nil {
+		return nil, &MutationOutcomeUnknownError{Cause: fmt.Errorf("missing mutation data envelope")}
+	}
+	return wrapper.Data, nil
 }
 
 // unwrapData extracts the "data" field from a YNAB API response.
@@ -263,6 +333,19 @@ func unwrapData(raw []byte) ([]byte, error) {
 		return raw, nil
 	}
 	return wrapper.Data, nil
+}
+
+// Only a recognized API rejection is definite; malformed proxy/error pages
+// cannot establish whether the upstream write committed.
+func mutationRejection(data []byte) error {
+	var wrapper errorWrapper
+	if err := json.Unmarshal(data, &wrapper); err != nil {
+		return &MutationOutcomeUnknownError{Cause: err}
+	}
+	if wrapper.Error.Name == "" {
+		return &MutationOutcomeUnknownError{Cause: fmt.Errorf("unrecognized rejection envelope")}
+	}
+	return &wrapper.Error
 }
 
 func parseAPIError(data []byte) *APIError {

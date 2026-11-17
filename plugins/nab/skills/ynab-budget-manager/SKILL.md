@@ -69,6 +69,24 @@ You can create a personal access token at https://app.ynab.com/settings/develope
 
 > **Cowork tip:** Set `NAB_TOKEN` and `NAB_BUDGET` in your Cowork environment settings (Settings → Environment Variables) so they persist across sessions.
 
+## Mutation transport safety (0.2.6)
+
+All mutating verbs use one attempt by default. `--mutation-attempts=1` and
+`NAB_MUTATION_ATTEMPTS=1` make the ceiling explicit; every other supplied value
+is rejected. Neither flags nor environment can enable retries. Reads retain
+up to three application attempts, with Retry-After capped at 30 seconds for 429.
+
+`MUTATION_OUTCOME_UNKNOWN` is a nonzero failure, not permission to replay. It
+covers connection loss/timeouts, 3xx/5xx, and incomplete or invalid success
+responses. Reconcile the exact target with GET, including intended fields and
+unrelated-field preservation. A stale, incomplete, missing or inconclusive GET
+leaves the outcome unknown. Stop for review; do not retry an entire batch or
+wrap mutations in an automatic CLI retry loop. Track known per-item outcomes
+separately. A genuinely new mutation needs a fresh dry-run and applicable user
+confirmation. Dry-run, confirmation and destructive-action rules are unchanged.
+
+Transport success alone does not establish semantic or exact-target acceptance.
+
 ## How to Use nab
 
 Command pattern: `nab <resource> <action> [flags]`
