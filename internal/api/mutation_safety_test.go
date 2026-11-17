@@ -86,7 +86,7 @@ func TestMutationLostResponseAndTruncatedBody(t *testing.T) {
 							t.Error(err)
 							return
 						}
-						defer conn.Close()
+						defer func() { _ = conn.Close() }()
 						if mode == "truncated" {
 							_, _ = buf.WriteString("HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n{\"data\":")
 							_ = buf.Flush()

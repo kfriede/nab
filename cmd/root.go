@@ -4,10 +4,10 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"github.com/kfriede/nab/internal/api"
 	"os"
 	"strings"
 
+	"github.com/kfriede/nab/internal/api"
 	"github.com/kfriede/nab/internal/config"
 	"github.com/kfriede/nab/internal/output"
 	"github.com/spf13/cobra"

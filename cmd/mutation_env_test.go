@@ -1,9 +1,10 @@
 package cmd
 
 import (
-	"github.com/spf13/cobra"
 	"os"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 // Exercise the actual pre-run closure with parsed inherited flags, without
@@ -29,7 +30,9 @@ func TestReviewCLIEnvHook(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("NAB_MUTATION_ATTEMPTS", tt.env)
 			if tt.env == "unset" {
-				os.Unsetenv("NAB_MUTATION_ATTEMPTS")
+				if err := os.Unsetenv("NAB_MUTATION_ATTEMPTS"); err != nil {
+					t.Fatal(err)
+				}
 			}
 			parent := &cobra.Command{Use: "fixture"}
 			child := &cobra.Command{Use: "write"}

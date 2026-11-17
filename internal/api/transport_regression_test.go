@@ -21,7 +21,7 @@ func TestReviewFreshHTTP1MutationConnections(t *testing.T) {
 				if !r.Close {
 					t.Error("keepalive enabled")
 				}
-				io.WriteString(w, `{"data":{"id":"fixture"}}`)
+				_, _ = io.WriteString(w, `{"data":{"id":"fixture"}}`)
 			}))
 			s.EnableHTTP2 = true
 			s.Config.ConnState = func(_ net.Conn, state http.ConnState) {
