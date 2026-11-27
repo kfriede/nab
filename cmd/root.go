@@ -75,6 +75,10 @@ func validateMutationAttempts(value string) error {
 }
 
 func classifyError(err error) output.AppError {
+	var notCommitted *UpdateNotCommittedError
+	if errors.As(err, &notCommitted) {
+		return output.NewError("UPDATE_NOT_COMMITTED", err.Error(), "Do not replay. A follow-up GET shows no change. A later fresh dry-run and confirmation may retry.")
+	}
 	var unknown *api.MutationOutcomeUnknownError
 	if errors.As(err, &unknown) {
 		return output.NewError("MUTATION_OUTCOME_UNKNOWN", err.Error(), "Do not replay. GET the exact target and reconcile all fields. If the result cannot uniquely prove the outcome, stop for review. A new mutation requires a fresh dry-run and confirmation.")
