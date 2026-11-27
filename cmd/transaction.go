@@ -205,14 +205,8 @@ Examples:
 			return err
 		}
 
-		payload := map[string]any{"transaction": body}
-		respData, err := client.Put(fmt.Sprintf("/budgets/%s/transactions/%s", budgetID, args[0]), payload)
+		result, err := updateTransaction(client, fmt.Sprintf("/budgets/%s/transactions/%s", budgetID, args[0]), body)
 		if err != nil {
-			return fmt.Errorf("updating transaction: %w", err)
-		}
-
-		var result map[string]any
-		if err := parseResponse(respData, &result); err != nil {
 			return err
 		}
 
